@@ -66,9 +66,11 @@ def main():
     df1=df1.drop("page_num_value")
     df1=df1.drop("page_num")
 
+    df1 = df1.withColumnRenamed('timestamp', 'browse_timestamp')
+    df1 = df1.withColumnRenamed('user', 'user_id')
     #check if valid columns should contain page+number,user,session start with specific letter
     df1=df1.filter(df1.page.rlike("^PAGE[0-9]"))
-    df1=df1.filter(df1.user.rlike("^U[0-9]"))
+    df1=df1.filter(df1.user_id.rlike("^U[0-9]"))
     df1=df1.filter(df1.session_id.rlike("^S[0-9]"))
     
 
@@ -92,47 +94,50 @@ def main():
     # A or B transcations are valid
     df2=df2.withColumn("transaction", check_case("transaction")).na.drop()
 
+
+    df2 = df2.withColumnRenamed('timestamp', 'transaction_timestamp')
+    df2 = df2.withColumnRenamed('user', 'user_id')
+
     #user,session start with specific letter
-    df2=df2.filter(df2.user.rlike("^U[0-9]"))
+    df2=df2.filter(df2.user_id.rlike("^U[0-9]"))
     df2=df2.filter(df2.session_id.rlike("^S[0-9]"))
     # df2=df2.filter((col("transaction") == "A") | (col("transaction") == "B"))
 
 
     ## calculate time spend per session
-    df1 = df1.withColumnRenamed('timestamp', 'browse_timestamp')
-    df2 = df2.withColumnRenamed('timestamp', 'transaction_timestamp')
+
 
     #store clean data in postgres as user_browsing
     df1.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
-    .option("driver", "org.postgresql.Driver").option("dbtable", "user_browsing") \
+    .option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("driver", "org.postgresql.Driver").option("dbtable", "user_browsing") \
     .option("user", "test").option("password", "test").save()
 
-    df1.toPandas().to_csv("/opt/spark-data/browsing.csv")
+    # df1.toPandas().to_csv("/opt/spark-data/browsing.csv")
 
 
 
 
-    df2.toPandas().to_csv("/opt/spark-data/transcations_pre_cleared.csv")
+    # df2.toPandas().to_csv("/opt/spark-data/transcations_pre_cleared.csv")
 
 
     #join both dataframes to locate average time to purchase
-    df3=df1.join(df2, (df1.user == df2.user) & (df1.session_id == df2.session_id), 'inner').\
-      select(df1.user,df1.session_id,df1.browse_timestamp,df1.page,df2.transaction_timestamp,df2.transaction).orderBy(col('user'),col('session_id'))
-    df3.toPandas().to_csv("/opt/spark-data/user_total_journey.csv")
+    df3=df1.join(df2, (df1.user_id == df2.user_id) & (df1.session_id == df2.session_id), 'inner').\
+      select(df1.user_id,df1.session_id,df1.browse_timestamp,df1.page,df2.transaction_timestamp,df2.transaction).orderBy(col('user_id'),col('session_id'))
+    # df3.toPandas().to_csv("/opt/spark-data/user_total_journey.csv")
     df3.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("url", "jdbc:postgresql://postgres:5432/test") \
     .option("driver", "org.postgresql.Driver").option("dbtable", "user_total_journey") \
     .option("user", "test").option("password", "test").save()
 
 
     ## here we end up with with the of the user in the site. keeping the first row (earliest) in the group by will give us
     ## the first page the user visited and the last page the user visited with the purchase
-    w = Window.partitionBy(["user","session_id"]).orderBy(asc('browse_timestamp'))
+    w = Window.partitionBy(["user_id","session_id"]).orderBy(asc('browse_timestamp'))
     df4=df3.withColumn('row',row_number().over(w)).filter(col('row') == 1).drop('row')
 
     df4.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("url", "jdbc:postgresql://postgres:5432/test") \
     .option("driver", "org.postgresql.Driver").option("dbtable", "user_journey_to_buy_visited") \
     .option("user", "test").option("password", "test").save()
 
@@ -142,7 +147,7 @@ def main():
     )
 
     ## it's not possible to have negative time spend per session, same session_id but diff date
-    df4.toPandas().to_csv("/opt/spark-data/time_spend_per_session_all_diff.csv")
+    # df4.toPandas().to_csv("/opt/spark-data/time_spend_per_session_all_diff.csv")
 
     
 
@@ -152,9 +157,9 @@ def main():
     df6=df6.filter(df4.date_diff_min < 1440)
 
     
-    df6.toPandas().to_csv("/opt/spark-data/time_spend_per_session_only_diff.csv")
+    # df6.toPandas().to_csv("/opt/spark-data/time_spend_per_session_only_diff.csv")
     df6.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("url", "jdbc:postgresql://postgres:5432/test") \
     .option("driver", "org.postgresql.Driver").option("dbtable", "time_spend_per_ses") \
     .option("user", "test").option("password", "test").save()    
 
@@ -162,18 +167,18 @@ def main():
     # drop those transactions from transcations df and keep only valid transactions
     # store clean data in postgres as user_transactions
 
-    df6=df6.select(df6.user,df6.session_id)
-    df2=df2.join(df6, on=['user','session_id'], how='left_anti')
-    df2.toPandas().to_csv("/opt/spark-data/transactions_cleared.csv")
+    df6=df6.select(df6.user_id,df6.session_id)
+    df2=df2.join(df6, on=['user_id','session_id'], how='left_anti')
+    # df2.toPandas().to_csv("/opt/spark-data/transactions_cleared.csv")
     df2.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("url", "jdbc:postgresql://postgres:5432/test") \
     .option("driver", "org.postgresql.Driver").option("dbtable", "user_transactions") \
     .option("user", "test").option("password", "test").save()
 
 
 
     # ## most transaction in pages..last page visited is where the transcaction happened
-    w = Window.partitionBy(["user","session_id"]).orderBy(desc('browse_timestamp'))
+    w = Window.partitionBy(["user_id","session_id"]).orderBy(desc('browse_timestamp'))
     
     df6=df3.withColumn('row',row_number().over(w)).filter(col('row') == 1).drop('row')
     df6=df6.withColumn(
@@ -183,10 +188,10 @@ def main():
     df6=df6.filter(df6.date_diff_last_page > 0)
     df6=df6.filter(df6.date_diff_last_page < 1440)
     df6.write.format("jdbc")\
-    .mode("overwrite").option("url", "jdbc:postgresql://postgres:5432/test") \
+    .mode("append").option("url", "jdbc:postgresql://postgres:5432/test") \
     .option("driver", "org.postgresql.Driver").option("dbtable", "end_transactions") \
     .option("user", "test").option("password", "test").save()
-    df6.toPandas().to_csv("/opt/spark-data/end_transactions.csv")
+    # df6.toPandas().to_csv("/opt/spark-data/end_transactions.csv")
 
   
   

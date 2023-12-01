@@ -25,6 +25,13 @@ wait until all containers are up ... while take a bit.
 Metabase will take a bit longer to start
 ```
 
+How to ingest data:
+```
+chmod +x ingest.sh
+./ingest.sh
+
+This will ingest data to minio ( as a data lake ) and then we can use spark to read from minio and write to postgres (clean data)
+```
 
 While building all the neccessary jars will be downloaded to establish mongo connection
 
@@ -43,13 +50,7 @@ or we can do:
 docker exec pyspark_docker-main-spark-master-1 bin/spark-submit --master spark://spark-master:7077 ../spark-apps/exercise.py
 ```
 
-How to ingest data:
-```
-chmod +x ingest.sh
-./ingest.sh
 
-This will ingest data to minio ( as a data lake ) and then we can use spark to read from minio and write to postgres (clean data)
-```
 
 All the data will be stored in postgres database 
 all datasource can be viewed in metabase (http://localhost:3000) ( if choose to uncomment from docker-compose)

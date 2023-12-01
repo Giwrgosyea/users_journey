@@ -76,7 +76,7 @@ def get_visited_page():
     try:
         conn=connect()
         cur = conn.cursor()
-        cur.execute('''select "public"."user_browsing".page as page_num,COUNT( DISTINCT "public"."user_browsing".user) as visited from user_browsing group by "public"."user_browsing".page''')
+        cur.execute('''select "public"."user_browsing".page as page_num,COUNT( DISTINCT "public"."user_browsing".user_id) as visited from user_browsing group by "public"."user_browsing".page order by  SUBSTRING(page FROM '([0-9]+)')::INT ASC, page ''')
         print("The number of parts: ", cur.rowcount)
         tuples_list = cur.fetchall()
         df = pd.DataFrame(tuples_list, columns=['page_num', 'visited'])
@@ -94,7 +94,7 @@ def get_most_popular_page():
     try:
         conn=connect()
         cur = conn.cursor()
-        cur.execute(''' select "public"."user_browsing".page as page_num,COUNT( DISTINCT "public"."user_browsing".session_id) as popularity from user_browsing group by "public"."user_browsing".page''')
+        cur.execute('''select "public"."user_browsing".page as page_num,COUNT( DISTINCT "public"."user_browsing".session_id) as popularity from user_browsing group by "public"."user_browsing".page order by  SUBSTRING(page FROM '([0-9]+)')::INT ASC, page''')
         print("The number of parts: ", cur.rowcount)
         tuples_list = cur.fetchall()
         df = pd.DataFrame(tuples_list, columns=['page_num', 'popularity'])
@@ -112,7 +112,7 @@ def get_transactions():
     try:
         conn=connect()
         cur = conn.cursor()
-        cur.execute('''select page as page_num,count(distinct "public"."end_transactions".session_id ) as transactions from end_transactions group by page''')
+        cur.execute('''select page as page_num,count(distinct "public"."end_transactions".session_id ) as transactions from end_transactions group by page order by  SUBSTRING(page FROM '([0-9]+)')::INT ASC, page''')
         print("The number of parts: ", cur.rowcount)
         tuples_list = cur.fetchall()
         df = pd.DataFrame(tuples_list, columns=['page_num', 'transactions'])
@@ -132,22 +132,26 @@ def get_table():
         conn=connect()
         cur = conn.cursor()
         cur.execute('''
-        with cte as (select *, rank() over(partition by user,session_id,transaction_timestamp order by browse_timestamp) as b_order from "public"."user_total_journey"),
+        with cte as (select *, rank() over(partition by user_id,session_id,transaction_timestamp order by browse_timestamp) as b_order from user_total_journey ),
 
-        cte1 as (select *,lag(cte.browse_timestamp) over (partition by cte.user,cte.session_id,cte.transaction_timestamp order by cte.b_order)  as lag1 from cte),
+        cte1 as (select *,lag(cte.browse_timestamp) over (partition by cte.user_id,cte.session_id,cte.transaction_timestamp order by cte.b_order)  as lag1 from cte),
 
         cte2 as (select *,DATE_PART('Minute',cte1.browse_timestamp-cte1.lag1) as dp from cte1),
 
-        c2 as (select count(cte2.page) as steps,cte2.user,cte2.session_id,avg(cte2.dp) from cte2 group by cte2.user,cte2.session_id),
-        c3 as (select user_journey_to_buy_visited.user as user_id , user_journey_to_buy_visited.session_id as sess, 
+        c2 as (select count(cte2.page) as steps,cte2.user_id,cte2.session_id,avg(cte2.dp) from cte2 group by cte2.user_id,cte2.session_id),
+        c3 as (select user_journey_to_buy_visited.user_id as user_id , user_journey_to_buy_visited.session_id as sess, 
         user_journey_to_buy_visited.browse_timestamp as start_time, 
         user_journey_to_buy_visited.transaction_timestamp as end_time,
         user_journey_to_buy_visited.page as start_page,
         end_transactions.page as end_page,
-        DATE_PART('Minute',user_journey_to_buy_visited.transaction_timestamp-user_journey_to_buy_visited.browse_timestamp) as diff_time_min
-        from user_journey_to_buy_visited left join end_transactions on user_journey_to_buy_visited.user =end_transactions.user and user_journey_to_buy_visited.session_id =end_transactions.session_id)
+        -- DATE_PART('Minute',user_journey_to_buy_visited.transaction_timestamp-user_journey_to_buy_visited.browse_timestamp) as diff_time_min
+        ((DATE_PART('Day', user_journey_to_buy_visited.transaction_timestamp::TIMESTAMP - user_journey_to_buy_visited.browse_timestamp::TIMESTAMP) * 24 +
+        DATE_PART('Hour', user_journey_to_buy_visited.transaction_timestamp::TIMESTAMP - user_journey_to_buy_visited.browse_timestamp::TIMESTAMP)) * 60 +
+        DATE_PART('Minute', user_journey_to_buy_visited.transaction_timestamp::TIMESTAMP - user_journey_to_buy_visited.browse_timestamp::TIMESTAMP)) as diff_time_min
+        
+        from user_journey_to_buy_visited left join end_transactions on user_journey_to_buy_visited.user_id =end_transactions.user_id and user_journey_to_buy_visited.session_id =end_transactions.session_id)
 
-        select c3.*,c2.steps from c3 left join  c2  on c3.user_id = c2.user and c3.sess=c2.session_id order by diff_time_min desc;        
+        select c3.*,c2.steps from c3 left join  c2  on c3.user_id = c2.user_id and c3.sess=c2.session_id where c3.end_page is not null order by diff_time_min desc;  
         ''')
         print("The number of parts: ", cur.rowcount)
         tuples_list = cur.fetchall()
